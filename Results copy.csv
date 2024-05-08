@@ -1,0 +1,5 @@
+model,lamb,lamb_entropy,acc
+Q_KAN,0.0,0.0,274.9999988079071
+Q_DNN,,,280
+KAN,0,0,280
+DNN,0,0,280
