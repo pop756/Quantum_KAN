@@ -172,16 +172,16 @@ class Early_stop_train_KAN():
             correct = 0
             with torch.no_grad():
                 for data, target in test_loader:
-                    for data, target in test_loader:
-                        if isinstance(data,list):
-                            for i,X in enumerate(data):
-                                data[i] = X.to(device)
-                        else:
-                            data = data.to(device)
+                    if isinstance(data,list):
+                        for i,X in enumerate(data):
+                            data[i] = X.to(device)
+                    else:
+                        data = data.to(device)
+                    target = target.to(device)
+                    data, target = data, target
                     output = self.model(data)
-
                     test_loss += self.criterion(output.squeeze(), target).item()
-                    
+
                     correct += accuracy(output,target)*len(output)
 
             print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset):.0f}%)')
