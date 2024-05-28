@@ -186,3 +186,59 @@ class Early_stop_train_KAN():
 
             print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset):.0f}%)')
             return test_loss,correct
+        
+from tqdm import tqdm
+class Kernal_method():
+    def __init__(self,feature_model):
+        
+        self.Kernal = feature_model
+        
+        
+    def objective_function(self,alpha, kernel_matrix, labels):
+        """SVM의 쌍대 목적 함수"""
+        L = 0.5 * torch.dot(alpha, torch.mv(kernel_matrix, alpha)) - torch.sum(alpha)
+        # 제약 조건을 유지하기 위해 레이블과 alpha의 곱의 합은 0이어야 합니다.
+        constraint = torch.dot(alpha, labels)
+        loss = -L + 1e4 * constraint ** 2
+        return loss  # 제약조건에 큰 페널티를 적용
+    
+    
+    def train(self,x_train,y_train,x_test,y_test,epochs=500):
+        num_data = x_train.shape[0]
+        kernel_matrix = torch.zeros((num_data, num_data), dtype=torch.float32)
+        for i in tqdm(range(num_data)):
+            data = torch.stack([x_train[i]]*num_data)
+            output = self.Kernal([data,x_train])
+            kernel_matrix[i] = output.detach().cpu()
+        
+        
+        labels = torch.tensor(y_train).float()
+        labels = 2*labels-1
+        alpha = torch.tensor([0.5]*num_data,requires_grad=True)
+        optimizer = torch.optim.Adam([alpha], lr=0.001)
+    
+        # 훈련 과정
+    
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            loss = self.objective_function(alpha, kernel_matrix, labels)
+            loss.backward()
+            optimizer.step()
+            alpha.data.clamp_(0)  # alpha는 0 이상이어야 함
+    
+        
+        # 테스트 데이터와 훈련 데이터 간의 양자 커널 행렬 계산
+        x_test = torch.tensor(x_test).float()
+        num_test = x_test.size(0)
+        test_kernel_matrix = torch.zeros((num_test, num_data), dtype=torch.float32)
+
+        for i in tqdm(range(num_data)):
+            data = torch.stack([x_train[i]]*num_test)
+            output = self.Kernal([data,x_test])
+            test_kernel_matrix[:,i] = output.detach().cpu()
+
+        # 훈련된 모델을 사용하여 테스트 데이터의 클래스 예측
+        predictions = torch.sign(torch.mv(test_kernel_matrix, alpha * labels))
+        predictions = (predictions+1)/2
+        print(" acc : ",accuracy(predictions,y_test))
+        return kernel_matrix,test_kernel_matrix,alpha,labels
