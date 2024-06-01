@@ -29,12 +29,14 @@ class Early_stop_train():
         self.criterion = criterion
 
 
-
-        self.loss_list = [1e100]
+        
         self.stop_count = 0
 
     def train_model(self,train_loader,test_loader=None ,epochs=200,res = 10,device = 'cpu'):
         self.model.train()
+        self.loss_list = [1e100]
+        self.train_loss_list = []
+        self.train_acc_list = []
         for epoch in range(epochs):
             if self.stop_count>=res:
                 break
@@ -44,6 +46,7 @@ class Early_stop_train():
             if self.loss_list[-1]>=np.min(self.loss_list[:-1]):
                 self.stop_count+=1
             else:
+                self.optimal = copy.deepcopy(self.model.state_dict())
                 self.stop_count = 0
             loss_list = []
             acc_list = []
@@ -64,10 +67,12 @@ class Early_stop_train():
                 loss_list.append(loss.item())
                 acc = accuracy(output,y_train)
                 acc_list.append(acc)
-
                 sys.stdout.write(f"\rEpoch {epoch+1} Loss {np.mean(loss_list):4f} acc : {np.mean(acc_list):4f} stop count : {self.stop_count}")
-
-
+            self.train_loss_list.append(np.mean(loss_list))
+            self.train_acc_list.append(np.mean(acc_list))
+        self.loss_list = self.loss_list[1:]
+        self.model.load_state_dict(self.optimal)
+        self.loss_list = self.loss_list[1:]
     def test(self,test_loader,device='cpu'):
         if test_loader is None:
             return 0,0
@@ -128,7 +133,7 @@ class Early_stop_train_KAN():
         
     def train_model(self,train_loader,test_loader=None ,epochs=200,res = 10,lamb=0.,device='cpu'):
         #self.model.train()
-        
+        self.train_loss_list = []
         for epoch in range(epochs):
             if self.stop_count>=res:
                 break
@@ -138,7 +143,7 @@ class Early_stop_train_KAN():
             if self.loss_list[-1]>=np.min(self.loss_list[:-1]):
                 self.stop_count+=1
             else:
-                self.optimal = self.model.state_dict()
+                self.optimal = copy.deepcopy(self.model.state_dict())
                 self.stop_count = 0
             loss_list = []
             acc_list = []
@@ -161,8 +166,10 @@ class Early_stop_train_KAN():
                 loss_list.append(loss.item())
                 acc = accuracy(output,y_train)
                 acc_list.append(acc)
+                self.train_loss_list.append(np.mean(loss_list))
                 sys.stdout.write(f"\rEpoch {epoch+1} Loss {np.mean(loss_list):4f} acc : {np.mean(acc_list):4f} reg : {reg_:4f} stop count : {self.stop_count}")
         self.model.load_state_dict(self.optimal)
+        self.loss_list = self.loss_list[1:]
     def test(self,test_loader,device='cpu'):
         if test_loader is None:
             return 0,0
@@ -186,3 +193,59 @@ class Early_stop_train_KAN():
 
             print(f'\nTest set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset):.0f}%)')
             return test_loss,correct
+        
+from tqdm import tqdm
+class Kernal_method():
+    def __init__(self,feature_model):
+        
+        self.Kernal = feature_model
+        
+        
+    def objective_function(self,alpha, kernel_matrix, labels):
+        """SVM의 쌍대 목적 함수"""
+        L = 0.5 * torch.dot(alpha, torch.mv(kernel_matrix, alpha)) - torch.sum(alpha)
+        # 제약 조건을 유지하기 위해 레이블과 alpha의 곱의 합은 0이어야 합니다.
+        constraint = torch.dot(alpha, labels)
+        loss = -L + 1e4 * constraint ** 2
+        return loss  # 제약조건에 큰 페널티를 적용
+    
+    
+    def train(self,x_train,y_train,x_test,y_test,epochs=500):
+        num_data = x_train.shape[0]
+        kernel_matrix = torch.zeros((num_data, num_data), dtype=torch.float32)
+        for i in tqdm(range(num_data)):
+            data = torch.stack([x_train[i]]*num_data)
+            output = self.Kernal([data,x_train])
+            kernel_matrix[i] = output.detach().cpu()
+        
+        
+        labels = torch.tensor(y_train).float()
+        labels = 2*labels-1
+        alpha = torch.tensor([0.5]*num_data,requires_grad=True)
+        optimizer = torch.optim.Adam([alpha], lr=0.001)
+    
+        # 훈련 과정
+    
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            loss = self.objective_function(alpha, kernel_matrix, labels)
+            loss.backward()
+            optimizer.step()
+            alpha.data.clamp_(0)  # alpha는 0 이상이어야 함
+    
+        
+        # 테스트 데이터와 훈련 데이터 간의 양자 커널 행렬 계산
+        x_test = torch.tensor(x_test).float()
+        num_test = x_test.size(0)
+        test_kernel_matrix = torch.zeros((num_test, num_data), dtype=torch.float32)
+
+        for i in tqdm(range(num_data)):
+            data = torch.stack([x_train[i]]*num_test)
+            output = self.Kernal([data,x_test])
+            test_kernel_matrix[:,i] = output.detach().cpu()
+
+        # 훈련된 모델을 사용하여 테스트 데이터의 클래스 예측
+        predictions = torch.sign(torch.mv(test_kernel_matrix, alpha * labels))
+        predictions = (predictions+1)/2
+        print(" acc : ",accuracy(predictions,y_test))
+        return kernel_matrix,test_kernel_matrix,alpha,labels
