@@ -160,3 +160,30 @@ def extrapolate_values(y_data,x_data = np.array([1, 3, 5, 7])):
     y_exp_0 = exp_func(0, a_exp, b_exp, c_exp)
 
     return y_linear_0, y_exp_0, params_linear, params_exp
+
+def curve_plot(x,y):
+    # 선형 함수 정의
+    def linear_func(x, a, b):
+        return a * x + b
+
+    # 지수 함수 정의
+    def exp_func(x, a, b, c):
+        return b*a **(x) + c
+    
+    # 선형 함수 피팅
+    params_linear, _ = curve_fit(linear_func, x, y)
+
+    # 지수 함수 피팅 초기 추정값 및 범위 설정
+    initial_guess = [0.8, 1, 1]
+    bounds = ([0, -5, -np.inf], [1, 5, np.inf])
+
+    params_exp, _ = curve_fit(exp_func, x, y, p0=initial_guess, bounds=bounds, maxfev=10000)
+    
+    # 맞춘 함수 플롯
+    x_fit = np.linspace(0, max(x), 100)
+    y_fit_linear = linear_func(x_fit, *params_linear)
+    y_fit_exp = exp_func(x_fit, *params_exp)
+    
+    
+    plt.plot(x_fit, y_fit_linear, label='Linear fitted function')
+    plt.plot(x_fit, y_fit_exp , label='Exp fitted function')
