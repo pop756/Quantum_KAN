@@ -123,11 +123,14 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
     
     
     real_value = real_circ()
+    _ = torch.nn.MSELoss(real_value,torch.tensor([0]))
+    
+    
     res = []
     for factor in noise_factor:
         output = noise_circ(factor)
         _ = torch.nn.MSELoss(output,torch.tensor([0]))
-        res.append(noise_circ(factor).detach().numpy())
+        res.append(output.detach().numpy())
     return res,real_value
     
 
