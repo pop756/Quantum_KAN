@@ -160,7 +160,7 @@ def extrapolate_values(y_data,x_data = np.array([1, 3, 5, 7])):
 
     # 지수 함수 피팅 초기 추정값 및 범위 설정
     initial_guess = [0.8, 1, 1]
-    bounds = ([0, -5, -np.inf], [1, 5, np.inf])
+    bounds = ([0, -3, -np.inf], [1, 3, np.inf])
 
     params_exp, _ = curve_fit(exp_func, x_data, y_data, p0=initial_guess, bounds=bounds, maxfev=10000)
     a_exp, b_exp, c_exp = params_exp
