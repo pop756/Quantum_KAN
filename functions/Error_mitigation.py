@@ -120,9 +120,13 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
                 eval(f'qml.{op}')
         return qml.expval(H)
     
+    
+    
     real_value = real_circ()
     res = []
     for factor in noise_factor:
+        output = noise_circ(factor)
+        _ = torch.nn.MSELoss(output,torch.tensor([0]))
         res.append(noise_circ(factor).detach().numpy())
     return res,real_value
     
