@@ -32,20 +32,20 @@ def extra_polation(circ,H,theta,noise_factor=[1,3,5],p1=0.01,p2=0.02):
         tensor = torch.tensor
         
         for op in ops:
-            eval(f'qml.{op}')
+            qml.apply(op)
         return qml.expval(H)
     
     def noise_circ():
         tensor = torch.tensor
         for op in ops:
-            eval(f'qml.{op}')
+            qml.apply(op)
             if len(op.wires)>1:
                 for wire in op.wires:
                     qml.DepolarizingChannel(p1, wires=wire)
-                    qml.BitFlip(p2, wires=wire)
+                    qml.AmplitudeDamping(p2, wires=wire)
             else:
                 qml.DepolarizingChannel(p1, wires=op.wires) 
-                qml.BitFlip(p2, wires=op.wires)
+                qml.AmplitudeDamping(p2, wires=op.wires)
     def noise_circ_inv():
         tensor = torch.tensor
         for op in ops_inv:
@@ -53,10 +53,10 @@ def extra_polation(circ,H,theta,noise_factor=[1,3,5],p1=0.01,p2=0.02):
             if len(op.wires)>1:
                 for wire in op.wires:
                     qml.DepolarizingChannel(p1, wires=wire)
-                    qml.BitFlip(p2, wires=wire)
+                    qml.AmplitudeDamping(p2, wires=wire)
             else:
                 qml.DepolarizingChannel(p1, wires=op.wires) 
-                qml.BitFlip(p2, wires=op.wires)
+                qml.AmplitudeDamping(p2, wires=op.wires)
     
     @qml.qnode(dev,interface='torch')
     def extra_polation(factor):
@@ -73,7 +73,7 @@ def extra_polation(circ,H,theta,noise_factor=[1,3,5],p1=0.01,p2=0.02):
     res = []
     real_value = real_circ()
     for factor in noise_factor:
-        res.append(extra_polation(factor).detach().numpy())
+        res.append(extra_polation(factor))
     return res,real_value
 
 def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
@@ -98,7 +98,7 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
         tensor = torch.tensor
         
         for op in ops:
-            eval(f'qml.{op}')
+            qml.apply(op)
         return qml.expval(H)
             
     @qml.qnode(dev)
@@ -112,12 +112,12 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
                     qml.DepolarizingChannel(p1*factor, wires=wire)
                     qml.BitFlip(p2*factor, wires=wire)"""
 
-                eval(f'qml.{op}')
+                qml.apply(op)
                 for wire in op.wires:
-                    qml.DepolarizingChannel(p1*factor, wires=wire)
-                    qml.BitFlip(p2*factor, wires=wire)
+                    qml.DepolarizingChannel(1-(1-p1)**factor, wires=wire)
+                    qml.AmplitudeDamping(1-(1-p1)**factor, wires=wire)
             else:
-                eval(f'qml.{op}')
+                qml.apply(op)
         return qml.expval(H)
     
     
@@ -130,7 +130,7 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
     for factor in noise_factor:
         output = noise_circ(factor)
         _ = torch.nn.MSELoss(output,torch.tensor([0]))
-        res.append(output.detach().numpy())
+        res.append(output)
     return res,real_value
     
 
