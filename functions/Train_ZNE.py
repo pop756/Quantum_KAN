@@ -63,12 +63,16 @@ def ecr_to_error(pulse_schedule,l):
         pulse_input_x_1.pulse._params.update(signal_params)
         pulse_input_x_1.pulse.duration = duration
         pulse_input_drag = pulse_copy.instructions[2][1]
-        if j == 1:
-            pulse_input_drag.pulse._params['angle'] += 3.14
+        pulse_input_drag.pulse._params['angle'] += 3.14
         pulse_input_c_2 = pulse_copy.instructions[4][1]
         pulse_input_c_2.pulse.duration = duration
         pulse_input_c_2.pulse._params.update(signal_params)
         pulse_input_x_2.pulse._params.update(signal_params)
+        if j == 1:
+            pulse_input_c_1.pulse._params['angle']+=3.14
+            pulse_input_x_1.pulse._params['angle']+=3.14
+            pulse_input_c_2.pulse._params['angle']+=3.14
+            pulse_input_x_2.pulse._params['angle']+=3.14
         pulse_input_x_2.pulse.duration = duration
         real_pulse = ScheduleBlock()
         real_pulse += pulse_input_c_1
@@ -77,6 +81,8 @@ def ecr_to_error(pulse_schedule,l):
         real_pulse += Delay(x_duration,pulse_input_x_1.channel)
         real_pulse +=  pulse_input_c_2
         real_pulse += pulse_input_x_2
+        real_pulse += Delay(duration,pulse_input_drag.channel)
+        real_pulse += pulse_input_drag
         real_pulse += Delay(duration,pulse_input_drag.channel)
         real_pulse += pulse_input_drag
         my_schedule += real_pulse
