@@ -40,39 +40,48 @@ def check_connect(backend,init_list):
     return connection,connection_temp
 
 
-def ecr_to_error(pulse_schedule,l):
+def ecr_to_error(pulse_schedule,l,amp_rate):
     pulse_copy = copy.deepcopy(pulse_schedule)
     duration_width_diff = int(pulse_copy.instructions[0][1].pulse.duration-pulse_copy.instructions[0][1].pulse._params['width'])
-    duration = round(pulse_copy.instructions[0][1].pulse.duration/32*l)*16
-    width = duration-duration_width_diff
     x_duration = pulse_copy.instructions[2][1].pulse.duration
-    sigma = round(pulse_copy.instructions[0][1].pulse._params['sigma']/32*l)*16
-    amp = pulse_copy.instructions[0][1].pulse._params['amp']/(2*l)
-    if sigma == 0:
-        sigma = 1
+    duration = round((pulse_copy.instructions[0][1].pulse.duration)/16*l)*8
+    rate = (pulse_copy.instructions[0][1].pulse.duration/2)/duration
+    width = duration-duration_width_diff
+    amp_x = pulse_copy.instructions[0][1].pulse._params['amp']*rate*amp_rate
+    amp_c = pulse_input_c_1 = pulse_copy.instructions[1][1].pulse._params['amp']*rate*amp_rate
+
     my_schedule = ScheduleBlock()
-    signal_params = {'width':width,'amp':amp}
+    signal_params_x = {'width':width,'amp':amp_x}
+    signal_params_c = {'width':width,'amp':amp_c}
     for j in range(2):
         pulse_copy = copy.deepcopy(pulse_schedule)
         pulse_input_x_1 = pulse_copy.instructions[0][1]
         pulse_input_x_2 = pulse_copy.instructions[3][1]
         pulse_input_c_1 = pulse_copy.instructions[1][1]
         #pulse_input_c_1.pulse._params['angle'] = 0
-        pulse_input_c_1.pulse._params.update(signal_params)
+        pulse_input_c_1.pulse._params.update(signal_params_c)
         pulse_input_c_1.pulse.duration = duration
-        pulse_input_x_1.pulse._params.update(signal_params)
+        pulse_input_x_1.pulse._params.update(signal_params_x)
         pulse_input_x_1.pulse.duration = duration
         pulse_input_drag = pulse_copy.instructions[2][1]
-        pulse_input_drag.pulse._params['angle'] += 3.14
         pulse_input_c_2 = pulse_copy.instructions[4][1]
         pulse_input_c_2.pulse.duration = duration
-        pulse_input_c_2.pulse._params.update(signal_params)
-        pulse_input_x_2.pulse._params.update(signal_params)
+        pulse_input_c_2.pulse._params.update(signal_params_c)
+        pulse_input_x_2.pulse._params.update(signal_params_x)
         if j == 1:
-            pulse_input_c_1.pulse._params['angle']+=3.14
-            pulse_input_x_1.pulse._params['angle']+=3.14
-            pulse_input_c_2.pulse._params['angle']+=3.14
-            pulse_input_x_2.pulse._params['angle']+=3.14
+            #pulse_input_drag.pulse._params['angle'] += 3.14
+            c1 = float(pulse_input_c_1.pulse._params['angle'])
+            x1 = float(pulse_input_x_1.pulse._params['angle'])
+            c2 = float(pulse_input_c_2.pulse._params['angle'])
+            x2 = float(pulse_input_x_2.pulse._params['angle'])
+            pulse_input_c_1.pulse._params['angle'] = c2
+            pulse_input_x_1.pulse._params['angle'] = x2
+            pulse_input_c_2.pulse._params['angle'] = c1
+            pulse_input_x_2.pulse._params['angle'] = x1
+            #pulse_input_c_1.pulse._params['angle'] = c1+3.14
+            #pulse_input_x_1.pulse._params['angle'] = x1+3.14
+            #pulse_input_c_2.pulse._params['angle'] = c2+3.14
+            #pulse_input_x_2.pulse._params['angle'] = x2+3.14
         pulse_input_x_2.pulse.duration = duration
         real_pulse = ScheduleBlock()
         real_pulse += pulse_input_c_1
@@ -95,10 +104,10 @@ def ecr_to_schedule(pulse_schedule,stretch):
 
     #변수들 값 정의
     duration_width_diff = int(pulse_copy.instructions[0][1].pulse.duration-pulse_copy.instructions[0][1].pulse._params['width'])
-    duration = round(pulse_copy.instructions[0][1].pulse.duration/16*stretch)*16
+    duration = round(pulse_copy.instructions[0][1].pulse.duration/8*stretch)*8
+    rate = pulse_copy.instructions[0][1].pulse.duration/duration
     width = duration - duration_width_diff
     x_duration = pulse_copy.instructions[2][1].pulse.duration
-    amp = pulse_copy.instructions[0][1].pulse._params['amp']/stretch
 
 
     pulse_input_x_1 = pulse_copy.instructions[0][1]
@@ -106,14 +115,26 @@ def ecr_to_schedule(pulse_schedule,stretch):
     pulse_input_c_1 = pulse_copy.instructions[1][1]
     pulse_input_drag = pulse_copy.instructions[2][1]
     pulse_input_c_2 = pulse_copy.instructions[4][1]
-    signal_params = {'width':width,'amp':amp}
-    pulse_input_c_1.pulse._params.update(signal_params)
+    #c1 = float(pulse_input_c_1.pulse._params['angle'])
+    #x1 = float(pulse_input_x_1.pulse._params['angle'])
+    #c2 = float(pulse_input_c_2.pulse._params['angle'])
+    #x2 = float(pulse_input_x_2.pulse._params['angle'])
+    #pulse_input_c_1.pulse._params['angle'] = c2
+    #pulse_input_x_1.pulse._params['angle'] = x2
+    #pulse_input_c_2.pulse._params['angle'] = c1
+    #pulse_input_x_2.pulse._params['angle'] = x1
+    amp_x = pulse_copy.instructions[0][1].pulse._params['amp']*rate
+    amp_c = pulse_copy.instructions[1][1].pulse._params['amp']*rate
+
+    signal_params_x = {'width':width,'amp':amp_x}
+    signal_params_c = {'width':width,'amp':amp_c}
+    pulse_input_c_1.pulse._params.update(signal_params_c)
     pulse_input_c_1.pulse.duration = duration
-    pulse_input_x_1.pulse._params.update(signal_params)
+    pulse_input_x_1.pulse._params.update(signal_params_x)
     pulse_input_x_1.pulse.duration = duration
     pulse_input_c_2.pulse.duration = duration
-    pulse_input_c_2.pulse._params.update(signal_params)
-    pulse_input_x_2.pulse._params.update(signal_params)
+    pulse_input_c_2.pulse._params.update(signal_params_c)
+    pulse_input_x_2.pulse._params.update(signal_params_x)
     pulse_input_x_2.pulse.duration = duration
     real_pulse = ScheduleBlock()
     real_pulse += pulse_input_c_1
@@ -128,27 +149,27 @@ def ecr_to_schedule(pulse_schedule,stretch):
     return my_schedule
 
 
-def update_ecr(l,init_list,backend,stretch=1):
+def update_ecr(l,init_list,backend,stretch=1,amp_rate=1):
     """
     _Make ecr gate to error gate in backend_
     """
     backend_copy = copy.deepcopy(backend)
     for initial_layout in init_list:
         pulse_schedule = backend_copy.target['ecr'][initial_layout].calibration
-        pulse_real = ecr_to_error(pulse_schedule,stretch)
+        pulse_real = ecr_to_error(pulse_schedule,stretch,amp_rate=amp_rate)
 
 
         if l == 0:
             backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real)))
         else:
-            my_schedule = ecr_to_error(pulse_schedule,l)
+            my_schedule = ecr_to_error(pulse_schedule,l,amp_rate=amp_rate)
             backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real+my_schedule)))
 
 
 
     return backend_copy
 
-def update_ecr_real(l,init_list,backend,stretch=1):
+def update_ecr_real(l,init_list,backend,stretch=1,amp_rate=1):
     """
     _Make ecr gate to stretch gate in backend_
     """
@@ -161,7 +182,7 @@ def update_ecr_real(l,init_list,backend,stretch=1):
         if l == 0:
             backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real)))
         else:
-            my_schedule = ecr_to_error(pulse_schedule,l)
+            my_schedule = ecr_to_error(pulse_schedule,l,amp_rate)
             backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real+my_schedule)))
 
 
@@ -169,7 +190,7 @@ def update_ecr_real(l,init_list,backend,stretch=1):
     return backend_copy
 
 class ZNE():
-    def __init__(self,circ,H,backend,init_list,validation_size=100,train_size=100,stretch=1.5,ZNE_factor=[1,1.8,2.2,2.6]):
+    def __init__(self,circ,H,backend,init_list,amp_rate,validation_size=100,train_size=100,stretch=1.6,ecr_stretch = 1.1,ZNE_factor=[1,2,3,4]):
         """_Error gate 로 구성된 train set와 일반 ecr로 구성된 validation set을 만들어주는 class_
 
         Args:
@@ -187,7 +208,9 @@ class ZNE():
         self.validation_size = validation_size
         self.train_size = train_size
         self.stretch = stretch
+        self.ecr_stretch = ecr_stretch
         self.ZNE_factor = ZNE_factor
+        self.amp_rate = amp_rate
         self.class_id = str(uuid.uuid4())
         connection,connection_temp = check_connect(backend,init_list)
         circ = transpile(circ,basis_gates=['rz','sx','x','ecr'],coupling_map=[list(i) for i in connection_temp],optimization_level=2,seed_transpiler=30)
@@ -209,8 +232,8 @@ class ZNE():
         Returns:
             _type_: _backend(cal)_
         """
-        backend_error = update_ecr(factor*self.stretch,self.connection,self.backend,stretch=self.stretch)
-        backend_ecr = update_ecr_real(factor*self.stretch,self.connection,self.backend,stretch=self.stretch)
+        backend_error = update_ecr((factor-1)*self.stretch,self.connection,self.backend,stretch=self.stretch,amp_rate=self.amp_rate)
+        backend_ecr = update_ecr_real((factor-1)*self.stretch,self.connection,self.backend,stretch=self.ecr_stretch,amp_rate=self.amp_rate)
         return backend_error,backend_ecr
 
     def make_data(self):
@@ -220,7 +243,7 @@ class ZNE():
         self.train_jobs = []
         self.valid_jobs = []
         for factor in self.ZNE_factor:
-            backend_error,backend_ecr = self.ZNE_pulse(factor-1)
+            backend_error,backend_ecr = self.ZNE_pulse(factor)
             #Train set 만들기
             passmanager = generate_preset_pass_manager(optimization_level=0, backend=backend_error, initial_layout=self.init_list)
             qc_input = passmanager.run(self.circ)
@@ -275,24 +298,29 @@ class ZNE():
         train_set = []
         valid_set = []
 
-        for i in range(len(self.ZNE_factor)):
+
+        
+        for job in self.train_jobs:
             train_list = []
             valid_list = []
-            for job in self.train_jobs[i]:
-                if job.status() != 'DONE':
-                    print('Job is not done')
-                    raise
-                else:
-                    res = job.result()
+            if job.status().value != 'job has successfully run':
+                print('Job is not done')
+                raise
+            else:
+                res_datas = job.result()
+                for res in res_datas:
                     train_list.append(res.data.evs)
             train_set.append(torch.tensor(np.array(train_list),dtype=torch.float32))
 
 
-            for job in self.valid_jobs[i].result():
-                if job.status() != 'DONE':
-                    print('Job is not done')
-                else:
-                    res = job.result()
+        for job in self.valid_jobs:
+            train_list = []
+            valid_list = []
+            if job.status().value != 'job has successfully run':
+                print('Job is not done')
+            else:
+                res_datas = job.result()
+                for res in res_datas:
                     valid_list.append(res.data.evs)
             valid_set.append(torch.tensor(np.array(valid_list),dtype=torch.float32))
         train_data = torch.stack(train_set,dim=1)
@@ -306,7 +334,7 @@ class ZNE():
 
 
 class train_ZNE():
-    def __init__(self,backend,stretch_list,ecr_stretch=1,l=0,size=20,connect = [0,1]):
+    def __init__(self,backend,stretch_list,ecr_stretch=1,l=0,size=20,connect = [0,1],amp_rate=1):
         """_Error gate와 실제 ECR 사이의 노이즈가 얼마나 차이가 있는지 체크하는 class_
 
         Args:
@@ -325,7 +353,7 @@ class train_ZNE():
         self.l = l
         self.ecr_stretch = ecr_stretch
         self.class_id = str(uuid.uuid4())
-
+        self.amp_rate = amp_rate
     def make_circ(self,odd=False,axis = 'z'):
         """_해당하는 서킷을 만드는 메소드_
 
@@ -386,7 +414,7 @@ class train_ZNE():
         qc_list = self.make_circ()
         qc_list_odd = self.make_circ(odd=True)
 
-        backend_ecr = update_ecr_real(self.l,self.layout,self.backend,self.ecr_stretch)
+        backend_ecr = update_ecr_real(self.l,self.layout,self.backend,self.ecr_stretch,amp_rate=self.amp_rate)
         passmanager = generate_preset_pass_manager(optimization_level=0, backend=backend_ecr, initial_layout=self.qc_connect)
         qc_input_ecr = passmanager.run(qc_list)
         with Batch(backend=backend_ecr):
@@ -397,7 +425,7 @@ class train_ZNE():
             self.job_test_list = job_test
 
         for stretch in self.stretch_list:
-            backend_test = update_ecr(self.l,self.layout,self.backend,stretch)
+            backend_test = update_ecr(self.l,self.layout,self.backend,stretch,amp_rate=self.amp_rate)
             passmanager = generate_preset_pass_manager(optimization_level=0, backend=backend_test, initial_layout=self.qc_connect)
             qc_input_ecr = passmanager.run(qc_list)
             qc_input_ecr_odd = passmanager.run(qc_list_odd)
