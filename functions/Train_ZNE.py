@@ -15,6 +15,9 @@ import pandas as pd
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_ibm_runtime import Batch
 import uuid
+import json
+with open('IX.json','r') as file:
+    X_data = json.load(file)
 
 
 def remove_ecr_gates(circuit):
@@ -53,6 +56,10 @@ def ecr_to_error(pulse_schedule,l,amp_rate):
     amp_c = pulse_copy.instructions[1][1].pulse._params['amp']*rate
     amp_x = pulse_copy.instructions[0][1].pulse._params['amp']*amp_rate
     my_schedule = ScheduleBlock()
+    
+    
+    
+    
     signal_params_x = {'width':width,'amp':amp_x}
     signal_params_c = {'width':width,'amp':amp_c }
     for j in range(2):
