@@ -29,6 +29,73 @@ from qiskit_experiments.framework import (
 from qiskit_experiments.library.characterization.analysis import CrossResonanceHamiltonianAnalysis
 
 
+class CrossResonanceHamiltonian_x_sweep_fix_y(CrossResonanceHamiltonian_x_sweep):
+    num_pulses = 1
+    
+    def _Recalculate_x_angle(self,amp):
+        amp_real,amp_imag = self.__amp_to_angle(amp,opt.angle)
+        amp_magnitude  = np.sqrt(amp_real**2+amp_imag**2)
+        _,amp_imag_origin = self.__amp_to_angle(opt.amps[0],opt.angle)
+        amp_imag = amp_imag_origin
+        amp_real = np.sqrt(amp_magnitude**2-amp_imag**2)
+        return self.__angle_to_amp(amp_real,amp_imag)
+    def __angle_to_amp(self,real,imag):
+        amp = math.sqrt(real**2 + imag**2)
+        angle = math.atan2(imag,real)
+        return amp,angle
+
+    def __amp_to_angle(self,amp,angle):
+        real = amp*math.cos(angle)
+        imag = amp*math.sin(angle)
+        return real,imag
+    
+    def _build_default_schedule(self) -> pulse.ScheduleBlock:
+        """GaussianSquared cross resonance pulse.
+
+        Returns:
+            A schedule definition for the cross resonance pulse to measure.
+        """
+        opt = self.experiment_options
+        amp = circuit.Parameter("amp")
+        if opt.duration>=5000:
+            raise QiskitError("duration is too long")
+        cr_drive = self._backend_data.control_channel(self.physical_qubits)[0]
+        c_drive = self._backend_data.drive_channel(self.physical_qubits[0])
+        t_drive = self._backend_data.drive_channel(self.physical_qubits[1])
+        x_amp,x_angle = self._Recalculate_x_angle(amp)
+        
+        
+        with pulse.build(default_alignment="left", name="cr") as cross_resonance:
+            # add cross resonance tone
+            pulse.play(
+                pulse.GaussianSquare(
+                    duration=opt.duration,
+                    amp=opt.amp,
+                    sigma=opt.sigma,
+                    risefall_sigma_ratio=opt.risefall,
+                    angle=  opt.angle_c
+                ),
+                cr_drive,
+            )
+            # add cancellation tone
+            pulse.play(
+                pulse.GaussianSquare(
+                    duration=opt.duration,
+                    amp=x_amp,
+                    sigma=opt.sigma,
+                    risefall_sigma_ratio=opt.risefall,
+                    angle= x_angle
+                ),
+                t_drive,
+            )
+
+
+            # place holder for empty drive channels. this is necessary due to known pulse gate bug.
+            pulse.delay(opt.duration, c_drive)
+
+        return cross_resonance
+
+
 
 
 class CrossResonanceHamiltonian_x_sweep(BaseExperiment):
@@ -1194,7 +1261,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 class data_analysis():
     def __init__(self,data_cr):
-        self.data = data_cr
+        self.data_cr = data_cr
 
     def get_result(self):
         x_list_data = defaultdict(list)
@@ -1217,15 +1284,15 @@ class data_analysis():
         keys = ['x','y','z']
         
         # 새로운 figure 생성
-        fig = plt.figure(figsize=(10, 8))
+        fig = plt.figure(figsize=(28, 8))
 
         # 첫 번째 subplot (1행 3열, 첫 번째 위치)
         for index,key in enumerate(keys):
             ax = fig.add_subplot(1, 3, index+1)
-            ax.plot(x_data, data_frame[key+'0'],'bo' ,label=f'{key+'0'} plot')
+            ax.plot(x_data, data_frame[key+'0'],'bo' ,label=f'{key+str(0)} plot')
             ax.set_title(f'{key} plot')
             ax.legend()
-            ax.plot(x_data, data_frame[key+'1'],'ro' ,label=f'{key+'1'} plot')
+            ax.plot(x_data, data_frame[key+'1'],'ro' ,label=f'{key+str(1)} plot')
             ax.set_title(f'{key} plot')
             ax.legend()
         plt.tight_layout()
