@@ -294,7 +294,7 @@ class CrossResonanceHamiltonian_x_amp_sweep(BaseExperiment):
             # add cross resonance tone
             pulse.play(
                 pulse.GaussianSquare(
-                    duration=opt.duration,
+                    duration=int(opt.duration/self._get_dt()),
                     amp=opt.amp,
                     sigma=opt.sigma,
                     risefall_sigma_ratio=opt.risefall,
@@ -304,7 +304,7 @@ class CrossResonanceHamiltonian_x_amp_sweep(BaseExperiment):
             # add cancellation tone
             pulse.play(
                 pulse.GaussianSquare(
-                    duration=opt.duration,
+                    duration=int(opt.duration/self._get_dt()),
                     amp=amp,
                     sigma=opt.sigma,
                     risefall_sigma_ratio=opt.risefall,
