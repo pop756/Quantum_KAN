@@ -76,7 +76,7 @@ def extra_polation(circ,H,theta,noise_factor=[1,3,5],p1=0.01,p2=0.02):
         res.append(extra_polation(factor))
     return res,real_value
 
-def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
+def extra_polation_time(circ,params,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
     """노이즈를 키워 서킷을 만들고 그 노이즈 서킷의 결과 출력
 
     Args:
@@ -90,16 +90,17 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
     Returns:
         res(list),real_value(float): 노이즈 팩터 리스트,실제 서킷 값 
     """
-    circ(theta)
+    circ(params)
     dev = circ.device
     ops = circ.qtape.operations
+    observables = circ.qtape.observables
     @qml.qnode(dev)
     def real_circ():
         tensor = torch.tensor
         
         for op in ops:
             qml.apply(op)
-        return qml.expval(H)
+        return [qml.expval(obs) for obs in observables]
             
     @qml.qnode(dev)
     def noise_circ(factor):
@@ -118,18 +119,16 @@ def extra_polation_time(circ,H,theta,noise_factor=[1,1.5,2],p1=0.01,p2=0.02):
                     qml.AmplitudeDamping(1-(1-p1)**factor, wires=wire)
             else:
                 qml.apply(op)
-        return qml.expval(H)
+        return [qml.expval(obs) for obs in observables]
     
     
     
-    real_value = real_circ()
-    _ = torch.nn.MSELoss(real_value,torch.tensor([0]))
+    real_value = torch.tensor(np.array(real_circ()))
     
     
     res = []
     for factor in noise_factor:
         output = noise_circ(factor)
-        _ = torch.nn.MSELoss(output,torch.tensor([0]))
         res.append(output)
     return res,real_value
     

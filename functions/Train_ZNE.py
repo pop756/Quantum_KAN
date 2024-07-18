@@ -124,7 +124,9 @@ class update_pulse():
     
     def _preserve_y_pulse(self,amp,original_amp,original_angle):
         _,imag = self._amp_to_angle(original_amp,original_angle)
-        angle = np.arcsin(imag/amp)
+        ratio = imag / amp
+        ratio = np.where((ratio < -1) | (ratio > 1), 0, ratio)
+        angle = np.arcsin(ratio)
         return angle
     
     def __ecr_to_error(self,initial_layout,stretch = 1):
@@ -157,12 +159,18 @@ class update_pulse():
         
         real_pulse = ScheduleBlock()
         real_pulse += CR_plus
-        real_pulse += x_target_cancellation_plus
+        if signal_params_x['angle'] == 0:
+            real_pulse += Delay(duration,x_target.channel)
+        else:
+            real_pulse += x_target_cancellation_plus
         real_pulse += Delay(duration*2,x_control.channel)
         real_pulse += ShiftPhase(np.pi,x_target.channel)
         real_pulse += ShiftPhase(np.pi,CR_plus.channel)
         real_pulse += CR_plus
-        real_pulse += x_target_cancellation_plus
+        if signal_params_x['angle'] == 0:
+            real_pulse +=Delay(duration,x_target.channel)
+        else:
+            real_pulse += x_target_cancellation_plus
         real_pulse += ShiftPhase(-np.pi,x_target.channel)
         real_pulse += ShiftPhase(-np.pi,CR_plus.channel)
         real_pulse += x_target
@@ -171,12 +179,18 @@ class update_pulse():
         
         real_pulse = ScheduleBlock()
         real_pulse += CR_plus
-        real_pulse += x_target_cancellation_plus
+        if signal_params_x['angle'] == 0:
+            real_pulse += Delay(duration,x_target.channel)
+        else:
+            real_pulse += x_target_cancellation_plus
         real_pulse += Delay(duration*2,x_control.channel)
         real_pulse += ShiftPhase(np.pi,x_target.channel)
         real_pulse += ShiftPhase(np.pi,CR_plus.channel)
         real_pulse += CR_plus
-        real_pulse += x_target_cancellation_plus
+        if signal_params_x['angle'] == 0:
+            real_pulse += Delay(duration,x_target.channel)
+        else:
+            real_pulse += x_target_cancellation_plus
         real_pulse += ShiftPhase(-np.pi,x_target.channel)
         real_pulse += ShiftPhase(-np.pi,CR_plus.channel)
         

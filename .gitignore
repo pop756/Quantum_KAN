@@ -6,3 +6,6 @@ ZNE_cal/
 csv_result/
 ibm_kyoto/
 ibm_osaka/
+0_ecr_compare_result/
+ecr_compare_result/
+temp.ipynb
