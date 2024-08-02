@@ -137,16 +137,17 @@ class update_pulse():
         x_target_cancellation_plus = backend.target['ecr'][initial_layout].calibration.instructions[0][1]
         
         amp_x = self.x_amp_dict[initial_layout]
-        angle_x = self._preserve_y_pulse(amp_x,x_target_cancellation_plus.pulse._params['amp'],x_target_cancellation_plus.pulse._params['angle'])
+        
         
         duration_width_diff = int(CR_plus.pulse.duration-CR_plus.pulse._params['width'])
         duration =  round((CR_plus.pulse.duration)/16*stretch)*8
         original_duration = round((CR_plus.pulse.duration)/16)*8
-        rate = (original_duration)/duration
+        rate = 1
         width = duration-duration_width_diff
         CR_plus.pulse.duration = duration
         CR_plus.pulse._params['amp'] *= rate
-        amp_x *= rate
+        #amp_x *= rate
+        angle_x = self._preserve_y_pulse(amp_x,x_target_cancellation_plus.pulse._params['amp']*rate,x_target_cancellation_plus.pulse._params['angle'])
         x_target_cancellation_plus.pulse.duration = duration
         signal_params_x = {'width':width,'amp':amp_x,'angle':angle_x}
         signal_params_c = {'width':width}
@@ -245,6 +246,8 @@ class update_pulse():
         
         my_schedule += real_pulse
         return my_schedule
+    
+
 import re
 from typing import List, Optional
 
@@ -468,7 +471,7 @@ class train_ZNE(update_pulse):
 
         return '_'.join(formatted_results)
 class ZNE(update_pulse):
-    def __init__(self,circ,H,validation_size=100,train_size=100,ZNE_factor=[1,2,3,4],**kwargs):
+    def __init__(self,circ,H,train_parameters=None,valid_parameters=None,validation_size=100,train_size=100,ZNE_factor=[1,2,3,4],class_name = None,**kwargs):
         """_Error gate 로 구성된 train set와 일반 ecr로 구성된 validation set을 만들어주는 class_
 
         Args:
@@ -490,7 +493,10 @@ class ZNE(update_pulse):
         self.validation_size = validation_size
         self.train_size = train_size
         self.ZNE_factor = ZNE_factor
-        self.class_id = str(uuid.uuid4())
+        if class_name is None:
+            self.class_id = str(uuid.uuid4())
+        else:
+            self.class_id = class_name
         
         circ = transpile(circ,basis_gates=['rz','sx','x','ecr'],coupling_map=[[i[0]-min_value,i[1]-min_value] for i in self.x_amp_dict.keys()],optimization_level=2,seed_transpiler=30)
         train_circ = remove_ecr_gates(circ)
@@ -498,10 +504,13 @@ class ZNE(update_pulse):
         self.train_circ = train_circ
         
         self.qubit_use = self._initial_layout()
-        np.random.seed(30)
-        self.train_parameters = np.random.uniform(-3.14, 3.14, [train_size,len(circ.parameters)])
-        np.random.seed(60)
-        self.valid_parameters = np.random.uniform(-3.14, 3.14, [validation_size,len(circ.parameters)])
+        if train_parameters is None:
+            self.train_parameters = np.random.uniform(-3.14, 3.14, [train_size,len(circ.parameters)])
+            self.valid_parameters = np.random.uniform(-3.14, 3.14, [validation_size,len(circ.parameters)])
+        
+        else:
+            self.train_parameters = train_parameters
+            self.valid_parameters = valid_parameters
     
     def __min_connect_value(self,connect_seq):
         min_value = 1e5

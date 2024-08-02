@@ -790,6 +790,7 @@ class CrossResonanceHamiltonian_x_sweep(BaseExperiment):
         """
         options = super()._default_experiment_options()
         options.amps = None
+        options.beta = 0
         options.amp = 0.3
         options.min_amps = 0.0001
         options.max_amps = 0.005
@@ -883,24 +884,28 @@ class CrossResonanceHamiltonian_x_sweep(BaseExperiment):
 
         with pulse.build(default_alignment="left", name="cr") as cross_resonance:
             # add cross resonance tone
-            pulse.play(
-                pulse.GaussianSquare(
-                    duration=opt.duration,
-                    amp=opt.amp,
-                    sigma=opt.sigma,
-                    risefall_sigma_ratio=opt.risefall,
-                    angle=  opt.angle_c
-                ),
-                cr_drive,
-            )
+            if opt.amp == 0:
+                pulse.delay(opt.duration,cr_drive)
+            else:
+                pulse.play(
+                    pulse.GaussianSquare(
+                        duration=opt.duration,
+                        amp=opt.amp,
+                        sigma=opt.sigma,
+                        risefall_sigma_ratio=opt.risefall,
+                        angle=  opt.angle_c
+                    ),
+                    cr_drive,
+                )
             # add cancellation tone
             pulse.play(
-                pulse.GaussianSquare(
+                pulse.GaussianSquareDrag(
                     duration=opt.duration,
                     amp=amp,
                     sigma=opt.sigma,
                     risefall_sigma_ratio=opt.risefall,
-                    angle= opt.angle_x
+                    angle= opt.angle_x,
+                    beta = opt.beta
                 ),
                 t_drive,
             )
