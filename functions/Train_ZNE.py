@@ -1,13 +1,13 @@
 from qiskit.compiler import transpile
 from qiskit_ibm_runtime.fake_provider import FakePerth
 from qiskit.circuit import QuantumCircuit, Gate
-from qiskit.pulse import builder, DriveChannel, Schedule, GaussianSquare, Drag, Play, ScheduleBlock, Delay
+from qiskit.pulse import builder, DriveChannel, Schedule, GaussianSquareDrag, Drag, Play, ScheduleBlock, Delay
 from qiskit.transpiler import InstructionProperties
 from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2, SamplerV2, Session, Batch
 from qiskit.primitives import StatevectorEstimator
 from qiskit.quantum_info import SparsePauliOp
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from qiskit.pulse.instructions import ShiftPhase
+from qiskit.pulse.instructions import ShiftPhase,ShiftFrequency
 import numpy as np
 import torch
 import pickle
@@ -52,16 +52,9 @@ import math
 class update_pulse():
     def __init__(self,
                 backend,
-                x_amp_dict : dict[float],
-                error_stretch = 1.,
-                ecr_stretch = 1.,
-                l = 0):
+                config):
         self.backend = backend
-        self.init_list = x_amp_dict.keys()
-        self.x_amp_dict = x_amp_dict
-        self.error_stretch = error_stretch
-        self.ecr_stretch = ecr_stretch
-        self.l = l
+        self.config_list = config
     
     def update_ecr_real(self):
         """
@@ -69,169 +62,40 @@ class update_pulse():
         """
         
         backend_copy = copy.deepcopy(self.backend)
-        for initial_layout in self.init_list:
-            if self.x_amp_dict is None:
-                pass
-            else:
-                amp_rate = self.x_amp_dict[initial_layout]
-            pulse_real = self.__ecr_to_schedule(initial_layout,self.ecr_stretch)
-
-            if self.l == 0:
-                backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real)))
-            
-            else:
-                my_schedule = self.__ecr_to_error(initial_layout)
-                for i in range(self.l):
-                    pulse_real += my_schedule
-                backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real)))
+        for config in self.config_list:
+            pulse_real = self.__ecr_to_schedule(config)
+            backend_copy.target.update_instruction_properties(f'ecr',tuple(config["init"]),properties = InstructionProperties(calibration=(pulse_real)))
             return backend_copy
     
-    def update_ecr(self):
-        """
-        _Make ecr gate to error gate in backend_
-        """
-        backend_copy = copy.deepcopy(self.backend)
-        for initial_layout in self.init_list:
-            pulse_schedule = backend_copy.target['ecr'][initial_layout].calibration
-            if self.x_amp_dict is None:
-                pass
-            else:
-                amp_rate = self.x_amp_dict[initial_layout]
-            pulse_real = self.__ecr_to_error(initial_layout,stretch = self.error_stretch)
-            
-            
-            if self.l == 0:
-                backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real)))
-            
-            elif int(self.l) == self.l:
-                my_schedule = self.__ecr_to_error(initial_layout)
-                for i in range(self.l):
-                    pulse_real += my_schedule
-                backend_copy.target.update_instruction_properties(f'ecr',initial_layout,properties = InstructionProperties(calibration=(pulse_real)))
 
         return backend_copy
     
     
-    def _angle_to_amp(self,real,imag):
-        amp = math.sqrt(real**2 + imag**2)
-        angle = math.atan2(imag,real)
-        return amp,angle
-
-    def _amp_to_angle(self,amp,angle):
-        real = amp*math.cos(angle)
-        imag = amp*math.sin(angle)
-        return real,imag
     
-    def _preserve_y_pulse(self,amp,original_amp,original_angle):
-        _,imag = self._amp_to_angle(original_amp,original_angle)
-        ratio = imag / amp
-        ratio = np.where((ratio < -1) | (ratio > 1), 0, ratio)
-        angle = np.arcsin(ratio)
-        return angle
-    
-    def __ecr_to_error(self,initial_layout,stretch = 1):
+    def __ecr_to_schedule(self,config):
+        initial_layout = tuple(config["init"])
         backend = copy.deepcopy(self.backend)
         x_target = backend.target['x'][(initial_layout[1],)].calibration.instructions[0][1]
         x_control = backend.target['x'][(initial_layout[0],)].calibration.instructions[0][1]
         CR_plus =  backend.target['ecr'][initial_layout].calibration.instructions[1][1]
-        x_target_cancellation_plus = backend.target['ecr'][initial_layout].calibration.instructions[0][1]
-        
-        amp_x = self.x_amp_dict[initial_layout]
         
         
         duration_width_diff = int(CR_plus.pulse.duration-CR_plus.pulse._params['width'])
-        duration =  round((CR_plus.pulse.duration)/16*stretch)*8
-        original_duration = round((CR_plus.pulse.duration)/16)*8
-        rate = 1
+        duration =  CR_plus.pulse.duration
         width = duration-duration_width_diff
         CR_plus.pulse.duration = duration
-        CR_plus.pulse._params['amp'] *= rate
-        #amp_x *= rate
-        angle_x = self._preserve_y_pulse(amp_x,x_target_cancellation_plus.pulse._params['amp']*rate,x_target_cancellation_plus.pulse._params['angle'])
-        x_target_cancellation_plus.pulse.duration = duration
-        signal_params_x = {'width':width,'amp':amp_x,'angle':angle_x}
         signal_params_c = {'width':width}
         
 
         CR_plus.pulse._params.update(signal_params_c)
-        x_target_cancellation_plus.pulse._params.update(signal_params_x)
 
         my_schedule = ScheduleBlock()
         
         real_pulse = ScheduleBlock()
+        real_pulse += ShiftFrequency(config['offset'],x_target.channel)
         real_pulse += CR_plus
-        if signal_params_x['angle'] == 0:
-            real_pulse += Delay(duration,x_target.channel)
-        else:
-            real_pulse += x_target_cancellation_plus
-        real_pulse += Delay(duration*2,x_control.channel)
-        real_pulse += ShiftPhase(np.pi,x_target.channel)
-        real_pulse += ShiftPhase(np.pi,CR_plus.channel)
-        real_pulse += CR_plus
-        if signal_params_x['angle'] == 0:
-            real_pulse +=Delay(duration,x_target.channel)
-        else:
-            real_pulse += x_target_cancellation_plus
-        real_pulse += ShiftPhase(-np.pi,x_target.channel)
-        real_pulse += ShiftPhase(-np.pi,CR_plus.channel)
-        real_pulse += x_target
-        real_pulse += x_control
-        my_schedule += real_pulse
-        
-        real_pulse = ScheduleBlock()
-        real_pulse += CR_plus
-        if signal_params_x['angle'] == 0:
-            real_pulse += Delay(duration,x_target.channel)
-        else:
-            real_pulse += x_target_cancellation_plus
-        real_pulse += Delay(duration*2,x_control.channel)
-        real_pulse += ShiftPhase(np.pi,x_target.channel)
-        real_pulse += ShiftPhase(np.pi,CR_plus.channel)
-        real_pulse += CR_plus
-        if signal_params_x['angle'] == 0:
-            real_pulse += Delay(duration,x_target.channel)
-        else:
-            real_pulse += x_target_cancellation_plus
-        real_pulse += ShiftPhase(-np.pi,x_target.channel)
-        real_pulse += ShiftPhase(-np.pi,CR_plus.channel)
-        
-        
-        real_pulse += x_control
-        real_pulse += x_target
-        
-        my_schedule += real_pulse
-        return my_schedule
-    
-    def __ecr_to_schedule(self,initial_layout,stretch):
-        backend = copy.deepcopy(self.backend)
-        x_target = backend.target['x'][(initial_layout[1],)].calibration.instructions[0][1]
-        x_control = backend.target['x'][(initial_layout[0],)].calibration.instructions[0][1]
-        CR_plus =  backend.target['ecr'][initial_layout].calibration.instructions[1][1]
-        x_target_cancellation_plus = backend.target['ecr'][initial_layout].calibration.instructions[0][1]
-        
-        
-        duration_width_diff = int(CR_plus.pulse.duration-CR_plus.pulse._params['width'])
-        duration =  round(CR_plus.pulse.duration*stretch/8)*8
-        original_duration =  round(CR_plus.pulse.duration/8)*8
-        rate = original_duration/duration
-        width = duration-duration_width_diff
-        CR_plus.pulse.duration = duration
-        CR_plus.pulse._params['amp'] *= rate
-        x_target_cancellation_plus.pulse._params['amp'] *= rate
-        x_target_cancellation_plus.pulse.duration = duration
-        signal_params_x = {'width':width}
-        signal_params_c = {'width':width}
-        
-
-        CR_plus.pulse._params.update(signal_params_c)
-        x_target_cancellation_plus.pulse._params.update(signal_params_x)
-
-        my_schedule = ScheduleBlock()
-        
-        real_pulse = ScheduleBlock()
-        real_pulse += CR_plus
-        real_pulse += x_target_cancellation_plus
-        real_pulse += Delay(duration,x_control.channel)
+        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp'],sigma = 32,beta = config['beta'],width = width, angle = 0),x_target.channel)
+        real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,CR_plus.channel)
         real_pulse += x_control
@@ -239,8 +103,12 @@ class update_pulse():
         
         real_pulse += ShiftPhase(np.pi,x_target.channel)
         real_pulse += ShiftPhase(np.pi,CR_plus.channel)
+        real_pulse += ShiftFrequency(config['offset'],x_target.channel)
+        real_pulse += ShiftFrequency(config['offset'],CR_plus.channel)
         real_pulse += CR_plus
-        real_pulse += x_target_cancellation_plus
+        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp'],sigma = 32,beta = config['beta'],width = width, angle = 0),x_target.channel)
+        real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
+        real_pulse += ShiftFrequency(-config['offset'],CR_plus.channel)
         real_pulse += ShiftPhase(-np.pi,x_target.channel)
         real_pulse += ShiftPhase(-np.pi,CR_plus.channel)
         
