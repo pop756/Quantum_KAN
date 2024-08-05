@@ -84,7 +84,7 @@ class update_pulse():
         duration =  CR_plus.pulse.duration
         width = duration-duration_width_diff
         CR_plus.pulse.duration = duration
-        signal_params_c = {'width':width}
+        signal_params_c = {'amp':config['cr_amp'],'width':width}
         
 
         CR_plus.pulse._params.update(signal_params_c)
@@ -98,6 +98,8 @@ class update_pulse():
         real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,CR_plus.channel)
+        
+        real_pulse += Delay(duration,x_control.channel)
         real_pulse += x_control
         
         

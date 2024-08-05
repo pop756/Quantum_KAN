@@ -28,7 +28,7 @@ from qiskit_experiments.framework import (
 )
 from qiskit_experiments.library.characterization.analysis import CrossResonanceHamiltonianAnalysis
 from qiskit_experiments.library import CrossResonanceHamiltonian
-
+from sklearn.linear_model import LinearRegression
 
 # This code is part of Qiskit.
 #
@@ -766,6 +766,7 @@ class CrossResonanceHamiltonian_angle(CrossResonanceHamiltonian):
 
       return circs
 
+
 class EchoedCrossResonanceHamiltonian_angle(CrossResonanceHamiltonian_angle):
     r"""Echoed cross resonance Hamiltonian tomography experiment.
 
@@ -798,7 +799,44 @@ class EchoedCrossResonanceHamiltonian_angle(CrossResonanceHamiltonian_angle):
 
     """
     num_pulses = 2
+    def _pulse_gate_circuits(self):
+        """Protocol to create circuits with pulse gate.
 
+        Pulse gate has backend timing constraints and duration should be in units of dt.
+        This method calls :meth:`_build_default_schedule` to generate actual schedule.
+        We assume backend has been set in this method call.
+        """
+        schedule = self._build_default_schedule()
+
+        # Assume this parameter is in units of dt, because this controls pulse samples.
+        param_duration = next(iter(schedule.get_parameters("duration")))
+
+        # Gate duration will be shown in sec, which is more intuitive.
+        cr_gate = self._gate_cls(width=self._get_width(self._backend_timing.dt * param_duration))
+
+        # Create parameterized circuits with calibration.
+        tmp_circs = []
+        for control_state in (0, 1):
+            for meas_basis in ("x", "y", "z"):
+                tmp_qc = QuantumCircuit(2, 1)
+                if control_state:
+                    tmp_qc.x(0)
+                tmp_qc.compose(
+                    other=self._build_cr_circuit(cr_gate),
+                    qubits=[0, 1],
+                    inplace=True,
+                )
+                if meas_basis == "x":
+                    tmp_qc.rz(np.pi / 2, 1)
+                if meas_basis in ("x", "y"):
+                    tmp_qc.sx(1)
+                tmp_qc.measure(1, 0)
+                tmp_qc.metadata = {
+                    "control_state": control_state,
+                    "meas_basis": meas_basis,
+                }
+                tmp_qc.add_calibration(cr_gate, self.physical_qubits, schedule)
+                tmp_circs.append(tmp_qc)
     def _build_cr_circuit(self, pulse_gate: circuit.Gate) -> QuantumCircuit:
         """Single tone cross resonance.
 
@@ -1350,6 +1388,60 @@ class CrossResonanceHamiltonian_c_sweep(BaseExperiment):
             if hasattr(self.run_options, run_opt):
                 metadata[run_opt] = getattr(self.run_options, run_opt)
         return metadata
+
+
+class EchoedCrossResonanceHamiltonian_c_sweep(CrossResonanceHamiltonian_c_sweep):
+    r"""Echoed cross resonance Hamiltonian tomography experiment.
+
+    # section: overview
+
+        This is a variant of :class:`CrossResonanceHamiltonian`
+        for which the experiment framework is identical but the
+        cross resonance operation is realized as an echoed sequence
+        to remove unwanted single qubit rotations. The cross resonance
+        circuit looks like:
+
+        .. parsed-literal::
+
+                 ┌────────────────────┐  ┌───┐  ┌────────────────────┐
+            q_0: ┤0                   ├──┤ X ├──┤0                   ├──────────
+                 │  cr_tone(duration) │┌─┴───┴─┐│  cr_tone(duration) │┌────────┐
+            q_1: ┤1                   ├┤ Rz(π) ├┤1                   ├┤ Rz(-π) ├
+                 └────────────────────┘└───────┘└────────────────────┘└────────┘
+
+        Here two ``cr_tone`` are applied, where the latter one is with the
+        control qubit state flipped and with a phase flip of the target qubit frame.
+        This operation is equivalent to applying the ``cr_tone`` with a negative amplitude.
+        The Hamiltonian for this decomposition has no IX and ZI interactions,
+        and also a reduced IY interaction to some extent (not completely eliminated) [1].
+        Note that the CR Hamiltonian tomography experiment cannot detect the ZI term.
+        However, it is sensitive to the IX and IY terms.
+
+    # section: reference
+        .. ref_arxiv:: 1 2007.02925
+
+    """
+    num_pulses = 2
+    def _build_cr_circuit(self, pulse_gate: circuit.Gate) -> QuantumCircuit:
+        """Single tone cross resonance.
+
+        Args:
+            pulse_gate: A pulse gate to represent a single cross resonance pulse.
+
+        Returns:
+            A circuit definition for the cross resonance pulse to measure.
+        """
+        cr_circuit = QuantumCircuit(2)
+        cr_circuit.append(pulse_gate, [0, 1])
+        cr_circuit.x(0)
+        cr_circuit.rz(np.pi, 1)
+        cr_circuit.append(pulse_gate, [0, 1])
+        cr_circuit.rz(-np.pi, 1)
+
+        return cr_circuit
+
+
+
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 def fit_sin_fucntion(x,y):
@@ -1441,11 +1533,11 @@ class ECR_calibration():
                 local_maxima.append((i, x[i], y[i]))
         
         return local_maxima
-    def _experiment_ecr_sweep(self):
+    def _experiment_ecr_sweep(self,step):
         cr_ham_experiment =EchoedCrossResonanceHamiltonian_x_sweep(
-        physical_qubits=(0, 1),
+        physical_qubits=self.physical_qubits,
         duration = self.CR_duration,
-        amps = np.linspace(0, 0.08, 40),
+        amps = np.linspace(0, 0.08, step),
         amp = self.CR_amp,
         angle_c = self.CR_angle,
         angle_x = 0,
@@ -1488,12 +1580,12 @@ class ECR_calibration():
         return data_cr
     def re_optimize_ecr(self):
         print('Re optimizaion ecr....')
-        data_cr = self._experiment_c_sweep(0.4)
+        data_cr = self._experiment_c_sweep(1)
         W_ZX = data_cr.analysis_results()[0].value.n
         W_IX = data_cr.analysis_results()[3].value.n
         W_ZY = data_cr.analysis_results()[1].value.n
         angle = np.arctan(W_ZY/W_ZX)
-        self.CR_angle += 0.4+angle
+        self.CR_angle += 1-angle
         data = data_analysis(data_cr)
         data.plot_result()
 
@@ -1506,22 +1598,38 @@ class ECR_calibration():
         physical_qubits=self.physical_qubits,
         duration=self.CR_duration,
         amps = np.linspace(8e-8, 3e-1, 34),
-        amp = 0.000,
+        amp = 0.00001,
         angle_c = angle+self.CR_angle,
         backend=self.backend,
-        offset = self.offset)
+        offset = self.offset
+        )
         data_cr = cr_ham_experiment.run().block_for_results()
+        return data_cr
+    
+    def _experiment_ecr_c_sweep(self):
+        cr_ham_experiment =EchoedCrossResonanceHamiltonian_c_sweep(
+        physical_qubits=self.physical_qubits,
+        duration=self.CR_duration,
+        amps = np.linspace(self.CR_amp-0.0125, self.CR_amp+0.0125, 50),
+        amp = self.x_amp_3,
+        angle_c = self.CR_angle,
+        backend=self.backend,
+        offset = self.offset
+        )
+        data_cr = cr_ham_experiment.run().block_for_results()
+        data = data_analysis(data_cr)
+        data.plot_result()
         return data_cr
     def find_x_amp_0(self):
         print('Finding amplitude of -W_zz + W_ix = 0....')
-        data_cr = self._experiment_x_sweep(np.linspace(-0.004, 0.04, 40))
+        data_cr = self._experiment_x_sweep(np.linspace(-0.015, 0.03, 80))
         data = data_analysis(data_cr)
         res = data.get_result()
         data.plot_result()
 
 
-        params = fit_sin_fucntion(res['xval'],res['z1'])
-        x_amp = res['xval'][np.argmax(list(res['z1'][:10]))]
+        params = fit_sin_fucntion(np.array(list(res['xval'])[40:]),np.array(list(res['z1'])[40:]))
+        x_amp = res['xval'][np.argmax(-(abs(np.array(res['y0'][:25]))))]
         x_amp_1 = (+2*np.pi-params[2])/params[1]
         x_amp_2 = ((9/4*np.pi)-params[2])/params[1]
         x_amp_3 = ((5/2*np.pi)-params[2])/params[1]
@@ -1531,27 +1639,72 @@ class ECR_calibration():
         self.x_amp_3 = x_amp_3
         print(f'cancel point : {x_amp}')
         print(f'w_ZX + w_IX point : {x_amp_1}')
+        print(f'w_ZX - w_IX point : {x_amp_3}')
+    def __check_up(self,data):
+        if data[20]>0:
+            return True
+        else:
+            return False
+    
     def find_offset(self):
-        self._experiment_ecr_sweep()
+        #self._experiment_ecr_sweep(step=50)
         self.find_x_amp_0()
         print('Finding offset....')
-        data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 45e-7, 18),0)
+        data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 40e-7, 40),0)
         data = data_analysis(data_cr)
         res = data.get_result()
-        params = fit_sin_fucntion(res['xval'],res['x1'])
-        offset = -params[1]/(2*np.pi)
-        data = data_analysis(data_cr)
-        data.plot_result()
-        self.offset = offset
-        self.re_optimize_ecr()
+        
+        pass_offset = False
+        index = 1
+        while abs(res['z0'][index])<0.2:
+            if (abs(abs(res['x0'][0]) - abs(res['x0'][5]))<0.1):
+                pass_offset = True
+                index+=1
+            else:
+                pass_offset = False
+                break
+                
         
         
-        data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 45e-7, 18),offset)
+        params = fit_sin_fucntion(res['xval'],res['x0'])
         data = data_analysis(data_cr)
         data.plot_result()
-        self.find_x_amp_0()
-        self._experiment_ecr_sweep()
-        print(f'offset : {offset}')
+        if not(pass_offset):
+            is_up = self.__check_up(res['x0'])
+            
+            if is_up:
+                offset = abs(params[1]/(2*np.pi))
+            else:
+                offset = -abs(params[1]/(2*np.pi))
+            
+            self.offset = offset
+            print(f'offset = {offset}')
+            self.re_optimize_ecr()
+            self.find_x_amp_0()
+            print('Checking offset....')
+            data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 40e-7, 40),self.offset)
+            data = data_analysis(data_cr)
+            data.plot_result()
+            
+            
+        print('Recalibration of ECR....')
+        data_cr = self._experiment_ecr_c_sweep()
+        data = data_analysis(data_cr)
+        res = data.get_result()
+        x_value = np.array(res['xval'])
+        y_value = np.array(((res['z0']+res['z1'])/2))
+        
+        x_value = x_value.reshape(-1)
+        reg = LinearRegression().fit(x_value, y_value)
+        slope = reg.coef_[0]
+        intercept = reg.intercept_
+        
+        x_zero = -intercept / slope
+        self.CR_amp = x_zero
+        print(f'Z distance : {x_zero}')
+        self._experiment_ecr_sweep(step=50)
+        print(f'offset : {self.offset}')
+
 
 
         
