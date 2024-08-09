@@ -78,13 +78,13 @@ class update_pulse():
         x_target = backend.target['x'][(initial_layout[1],)].calibration.instructions[0][1]
         x_control = backend.target['x'][(initial_layout[0],)].calibration.instructions[0][1]
         CR_plus =  backend.target['ecr'][initial_layout].calibration.instructions[1][1]
-        
+
         
         duration_width_diff = int(CR_plus.pulse.duration-CR_plus.pulse._params['width'])
         duration =  CR_plus.pulse.duration
         width = duration-duration_width_diff
         CR_plus.pulse.duration = duration
-        signal_params_c = {'amp':config['cr_amp'],'width':width}
+        signal_params_c = {'amp':config['cr_amp'],'width':width,'angle': CR_plus.pulse._params['angle']}
         
 
         CR_plus.pulse._params.update(signal_params_c)
@@ -103,16 +103,18 @@ class update_pulse():
         real_pulse += x_control
         
         
-        real_pulse += ShiftPhase(np.pi,x_target.channel)
-        real_pulse += ShiftPhase(np.pi,CR_plus.channel)
+        
+        signal_params_c['angle'] += np.pi
+        CR_minus = copy.deepcopy(CR_plus)
+        CR_minus.pulse._params.update(signal_params_c)
+
         real_pulse += ShiftFrequency(config['offset'],x_target.channel)
         real_pulse += ShiftFrequency(config['offset'],CR_plus.channel)
-        real_pulse += CR_plus
-        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp'],sigma = 32,beta = config['beta'],width = width, angle = 0),x_target.channel)
+        real_pulse += CR_minus
+        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp'],sigma = 32,beta = config['beta'],width = width, angle = np.pi),x_target.channel)
         real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
         real_pulse += ShiftFrequency(-config['offset'],CR_plus.channel)
-        real_pulse += ShiftPhase(-np.pi,x_target.channel)
-        real_pulse += ShiftPhase(-np.pi,CR_plus.channel)
+
         
         my_schedule += real_pulse
         return my_schedule

@@ -874,6 +874,7 @@ class data_analysis():
         data_result = {'xval':x_list_data['x0']}
         data_result.update(y_list_data)
         data_frame = pd.DataFrame(data_result)
+        data_frame = data_frame.sort_values(by='xval')
         return data_frame
 
     def save_data(self,file_name):
@@ -1506,7 +1507,7 @@ def fit_sin_fucntion(x,y):
     return params
 
 class ECR_calibration():
-    def __init__(self,backend,CR_angle,CR_amp,CR_duration,beta,physical_qubits):
+    def __init__(self,backend,CR_angle,x_angle,CR_amp,CR_duration,beta,physical_qubits):
         self.backend = backend
         self.CR_angle = CR_angle
         self.CR_amp = CR_amp
@@ -1514,6 +1515,7 @@ class ECR_calibration():
         self.physical_qubits = physical_qubits
         self.offset = 0
         self.beta = beta
+        self.x_angle = x_angle
 
     def find_local_maxima(x, y):
         """
@@ -1540,7 +1542,7 @@ class ECR_calibration():
         amps = np.linspace(0, 0.08, step),
         amp = self.CR_amp,
         angle_c = self.CR_angle,
-        angle_x = 0,
+        angle_x = self.x_angle,
         offset = self.offset,
         backend=self.backend,
         )
@@ -1556,6 +1558,7 @@ class ECR_calibration():
             amps = amps,
             amp = self.CR_amp,
             angle_c = self.CR_angle,
+            angle_x = self.x_angle,
             backend=self.backend,
             offset = self.offset,
             beta = self.beta
@@ -1571,7 +1574,7 @@ class ECR_calibration():
         amp = self.CR_amp,
         amp_t = self.x_amp_0,
         c_angle = self.CR_angle,
-        x_angle = 0,
+        x_angle = self.x_angle,
         offset = offset,
         backend=self.backend,
         beta = self.beta)
@@ -1610,9 +1613,10 @@ class ECR_calibration():
         cr_ham_experiment =EchoedCrossResonanceHamiltonian_c_sweep(
         physical_qubits=self.physical_qubits,
         duration=self.CR_duration,
-        amps = np.linspace(self.CR_amp-0.0125, self.CR_amp+0.0125, 50),
+        amps = np.linspace(self.CR_amp-0.0125*2, self.CR_amp+0.0125*2, 50),
         amp = self.x_amp_3,
         angle_c = self.CR_angle,
+        x_angle = self.x_angle,
         backend=self.backend,
         offset = self.offset
         )
@@ -1620,19 +1624,43 @@ class ECR_calibration():
         data = data_analysis(data_cr)
         data.plot_result()
         return data_cr
+    
+    def _find_first_pick(self,data):
+        
+        soft_stop = False
+        min_value = 1000
+        min_index = 0
+        for index,x_value in enumerate(data):
+            check_value = abs(x_value)
+            if check_value < 0.1:
+                soft_stop = True
+                if check_value<min_value:
+                    min_value = check_value
+                    min_index = index
+            if soft_stop:
+                if check_value > 0.1:
+                    break
+        return min_index 
+        
+        
     def find_x_amp_0(self):
         print('Finding amplitude of -W_zz + W_ix = 0....')
-        data_cr = self._experiment_x_sweep(np.linspace(-0.015, 0.03, 80))
+        data = np.array(list(np.linspace(-0.015, 0.000, 20)) + list(np.linspace(0.02, 0.06, 40)))
+        data_cr = self._experiment_x_sweep(data)
         data = data_analysis(data_cr)
         res = data.get_result()
+        
+        
+        
+        
         data.plot_result()
 
 
-        params = fit_sin_fucntion(np.array(list(res['xval'])[40:]),np.array(list(res['z1'])[40:]))
-        x_amp = res['xval'][np.argmax(-(abs(np.array(res['y0'][:25]))))]
-        x_amp_1 = (+2*np.pi-params[2])/params[1]
-        x_amp_2 = ((9/4*np.pi)-params[2])/params[1]
-        x_amp_3 = ((5/2*np.pi)-params[2])/params[1]
+        params = fit_sin_fucntion(np.array(list(res['xval'])[21:]),np.array(list(res['z1'])[21:]))
+        x_amp = res['xval'][self._find_first_pick(np.array(res['y0'][:19]))]
+        x_amp_1 = list(res['xval'][21:])[np.argmax(np.array(res['z0'][21:]))]
+        x_amp_3 = list(res['xval'][21:])[np.argmax(np.array(res['z1'][21:]))]
+        x_amp_2 = (x_amp_1+x_amp_3)/2
         self.x_amp_0  = x_amp
         self.x_amp_1 = x_amp_1
         self.x_amp_2 = x_amp_2
@@ -1646,18 +1674,19 @@ class ECR_calibration():
         else:
             return False
     
+    
     def find_offset(self):
         #self._experiment_ecr_sweep(step=50)
         self.find_x_amp_0()
         print('Finding offset....')
-        data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 40e-7, 40),0)
+        data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 30e-7, 40),0)
         data = data_analysis(data_cr)
         res = data.get_result()
         
         pass_offset = False
         index = 1
         while abs(res['z0'][index])<0.2:
-            if (abs(abs(res['x0'][0]) - abs(res['x0'][5]))<0.1):
+            if (abs(abs(res['x0'][0]) - abs(res['x0'][index]))<0.2):
                 pass_offset = True
                 index+=1
             else:
@@ -1665,24 +1694,28 @@ class ECR_calibration():
                 break
                 
         
-        
+        x_amp_1 = list(res['xval'])[np.argmax(np.array(res['x0']))]
         params = fit_sin_fucntion(res['xval'],res['x0'])
         data = data_analysis(data_cr)
         data.plot_result()
         if not(pass_offset):
             is_up = self.__check_up(res['x0'])
             
-            if is_up:
-                offset = abs(params[1]/(2*np.pi))
-            else:
-                offset = -abs(params[1]/(2*np.pi))
             
-            self.offset = offset
+            
+            if is_up:
+                #offset = abs(params[1]/(2*np.pi))
+                offset = (1/(x_amp_1*4))*np.max(abs(np.array(res['x0'])))
+            else:
+                #offset = -abs(params[1]/(2*np.pi))
+                offset = -(1/(x_amp_1*4))*np.max(abs(np.array(res['x0'])))
+            
+            self.offset += offset
             print(f'offset = {offset}')
             self.re_optimize_ecr()
             self.find_x_amp_0()
             print('Checking offset....')
-            data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 40e-7, 40),self.offset)
+            data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 30e-7, 40),self.offset)
             data = data_analysis(data_cr)
             data.plot_result()
             
@@ -1694,7 +1727,7 @@ class ECR_calibration():
         x_value = np.array(res['xval'])
         y_value = np.array(((res['z0']+res['z1'])/2))
         
-        x_value = x_value.reshape(-1)
+        x_value = x_value.reshape(-1,1)
         reg = LinearRegression().fit(x_value, y_value)
         slope = reg.coef_[0]
         intercept = reg.intercept_
@@ -1708,4 +1741,46 @@ class ECR_calibration():
 
 
         
-    
+class ECR_calibration_minus(ECR_calibration):
+    def _experiment_ecr_sweep(self,step):
+        cr_ham_experiment =EchoedCrossResonanceHamiltonian_x_sweep(
+        physical_qubits=self.physical_qubits,
+        duration = self.CR_duration,
+        amps = np.linspace(-0.08, 0.00, step),
+        amp = self.CR_amp,
+        angle_c = self.CR_angle,
+        angle_x = self.x_angle,
+        offset = self.offset,
+        backend=self.backend,
+        )
+        data_cr = cr_ham_experiment.run().block_for_results()
+        data = data_analysis(data_cr)
+        data.plot_result()
+        return data_cr
+    def find_x_amp_0(self):
+        print('Finding amplitude of -W_zz + W_ix = 0....')
+        data = np.array(list(np.linspace(-0.015, 0.000, 20)) + list(np.linspace(-0.02, -0.06, 40)))
+        data_cr = self._experiment_x_sweep(data)
+        data = data_analysis(data_cr)
+        res = data.get_result()
+        res = res.sort_values(by='xval', ascending=False)
+        
+        
+        
+        data.plot_result()
+
+
+        params = fit_sin_fucntion(np.array(list(res['xval'])[21:]),np.array(list(res['z1'])[21:]))
+        x_amp = list(res['xval'][:19])[self._find_first_pick(np.array(res['y0'][:19]))]
+        x_amp_1 = list(res['xval'][21:])[np.argmax(np.array(res['z0'][21:]))]
+        x_amp_3 = list(res['xval'][21:])[np.argmax(np.array(res['z1'][21:]))]
+        x_amp_2 = (x_amp_1+x_amp_3)
+        self.x_amp_0  = x_amp
+        self.x_amp_1 = x_amp_1
+        self.x_amp_2 = x_amp_2
+        self.x_amp_3 = x_amp_3
+        print(f'cancel point : {x_amp}')
+        print(f'w_ZX + w_IX point : {x_amp_1}')
+        print(f'w_ZX - w_IX point : {x_amp_3}')
+        
+        
