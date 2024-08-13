@@ -94,7 +94,7 @@ class update_pulse():
         real_pulse = ScheduleBlock()
         real_pulse += ShiftFrequency(config['offset'],x_target.channel)
         real_pulse += CR_plus
-        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp'],sigma = 32,beta = config['beta'],width = width, angle = 0),x_target.channel)
+        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp1'],sigma = 32,beta = config['beta'],width = width, angle = config['x_angle']),x_target.channel)
         real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,CR_plus.channel)
@@ -111,7 +111,7 @@ class update_pulse():
         real_pulse += ShiftFrequency(config['offset'],x_target.channel)
         real_pulse += ShiftFrequency(config['offset'],CR_plus.channel)
         real_pulse += CR_minus
-        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp'],sigma = 32,beta = config['beta'],width = width, angle = np.pi),x_target.channel)
+        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp2'],sigma = 32,beta = config['beta'],width = width, angle = config['x_angle']+np.pi),x_target.channel)
         real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
         real_pulse += ShiftFrequency(-config['offset'],CR_plus.channel)
 

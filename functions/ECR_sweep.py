@@ -578,7 +578,125 @@ class EchoedCrossResonanceHamiltonian_x_sweep(CrossResonanceHamiltonian_x_sweep)
 
         return cr_circuit
 
+class ECR_with_second_x(CrossResonanceHamiltonian_x_sweep):
+    def __init__(self,ref_x,kwargs):
+        self.ref = ref_x
+        super().__init__(**kwargs)
+        
+    def _build_ref_schedule(self) -> pulse.ScheduleBlock:
+        """GaussianSquared cross resonance pulse.
 
+        Returns:
+            A schedule definition for the cross resonance pulse to measure.
+        """
+        opt = self.experiment_options
+        if opt.duration>=5000:
+            raise QiskitError("duration is too long")
+        cr_drive = self._backend_data.control_channel(self.physical_qubits)[0]
+        c_drive = self._backend_data.drive_channel(self.physical_qubits[0])
+        t_drive = self._backend_data.drive_channel(self.physical_qubits[1])
+
+        with pulse.build(default_alignment="left", name="cr") as cross_resonance:
+            offset = self.offset
+
+            pulse.shift_frequency(offset,t_drive)
+
+            # add cross resonance tone
+            pulse.play(
+                pulse.GaussianSquare(
+                    duration=opt.duration,
+                    amp=opt.amp,
+                    sigma=opt.sigma,
+                    risefall_sigma_ratio=opt.risefall,
+                    angle=  opt.angle_c
+                ),
+                cr_drive,
+            )
+            # add cancellation tone
+            pulse.play(
+                pulse.GaussianSquareDrag(
+                    duration=opt.duration,
+                    amp=self.ref,
+                    sigma=opt.sigma,
+                    risefall_sigma_ratio=opt.risefall,
+                    angle= opt.angle_x,
+                    beta = self.beta
+                ),
+                t_drive,
+            )
+
+
+            # place holder for empty drive channels. this is necessary due to known pulse gate bug.
+            pulse.shift_frequency(-offset,t_drive)
+
+            pulse.delay(opt.duration, c_drive)
+            
+        return cross_resonance
+    
+    def _pulse_gate_circuits(self):
+        """Protocol to create circuits with pulse gate.
+
+        Pulse gate has backend timing constraints and duration should be in units of dt.
+        This method calls :meth:`_build_default_schedule` to generate actual schedule.
+        We assume backend has been set in this method call.
+        """
+        schedule = self._build_default_schedule()
+        schedule_ref = self._build_ref_schedule()
+        # Assume this parameter is in units of dt, because this controls pulse samples.
+        param_amp = next(iter(schedule.get_parameters("amp")))
+
+        # Gate duration will be shown in sec, which is more intuitive.
+        cr_gate = self._gate_cls(amp=self._get_width(param_amp))
+        ref_gate = circuit.Gate('ref',2,[])
+        # Create parameterized circuits with calibration.
+        tmp_circs = []
+        for control_state in (0, 1):
+            for meas_basis in ("x", "y", "z"):
+                tmp_qc = QuantumCircuit(2, 1)
+                if control_state:
+                    tmp_qc.x(0)
+                tmp_qc.compose(
+                    other=self._build_cr_circuit(ref_gate),
+                    qubits=[0, 1],
+                    inplace=True,
+                )
+                tmp_qc.x(0)
+                tmp_qc.rz(np.pi, 1)
+                tmp_qc.compose(
+                    other=self._build_cr_circuit(cr_gate),
+                    qubits=[0, 1],
+                    inplace=True,
+                )
+                tmp_qc.rz(-np.pi, 1)
+                if meas_basis == "x":
+                    tmp_qc.rz(np.pi / 2, 1)
+                if meas_basis in ("x", "y"):
+                    tmp_qc.sx(1)
+                tmp_qc.measure(1, 0)
+                tmp_qc.metadata = {
+                    "control_state": control_state,
+                    "meas_basis": meas_basis,
+                }
+                tmp_qc.add_calibration(cr_gate, self.physical_qubits, schedule)
+                tmp_qc.add_calibration(ref_gate, self.physical_qubits, schedule_ref)
+                tmp_circs.append(tmp_qc)
+
+        circs = []
+        for amp in self._get_amps():
+
+            for circ in tmp_circs:
+                # Assign duration in dt to create pulse schedule.
+                assigned_circ = circ.assign_parameters(
+                    {param_amp: amp},
+                    inplace=False,
+                )
+                assigned_circ.metadata["xval"] = amp
+                circs.append(assigned_circ)
+
+        return circs
+            
+    
+    
 class CrossResonanceHamiltonian_angle(CrossResonanceHamiltonian):
     r"""Echoed cross resonance Hamiltonian tomography experiment.
 
@@ -1442,6 +1560,123 @@ class EchoedCrossResonanceHamiltonian_c_sweep(CrossResonanceHamiltonian_c_sweep)
         return cr_circuit
 
 
+class ECR_with_second_c(CrossResonanceHamiltonian_c_sweep):
+    def __init__(self,ref_x,kwargs):
+        self.ref = ref_x
+        super().__init__(**kwargs)
+        
+    def _build_ref_schedule(self) -> pulse.ScheduleBlock:
+        """GaussianSquared cross resonance pulse.
+
+        Returns:
+            A schedule definition for the cross resonance pulse to measure.
+        """
+        opt = self.experiment_options
+        amp = circuit.Parameter("amp_1")
+        if opt.duration>=5000:
+            raise QiskitError("duration is too long")
+        cr_drive = self._backend_data.control_channel(self.physical_qubits)[0]
+        c_drive = self._backend_data.drive_channel(self.physical_qubits[0])
+        t_drive = self._backend_data.drive_channel(self.physical_qubits[1])
+
+        with pulse.build(default_alignment="left", name="cr") as cross_resonance:
+            offset = opt.offset
+
+            pulse.shift_frequency(offset,t_drive)
+
+            # add cross resonance tone
+            pulse.play(
+                pulse.GaussianSquare(
+                    duration=opt.duration,
+                    amp=amp,
+                    sigma=opt.sigma,
+                    risefall_sigma_ratio=opt.risefall,
+                    angle=  opt.angle_c
+                ),
+                cr_drive,
+            )
+            # add cancellation tone
+            pulse.play(
+                pulse.GaussianSquare(
+                    duration=opt.duration,
+                    amp=self.ref,
+                    sigma=opt.sigma,
+                    risefall_sigma_ratio=opt.risefall,
+                    angle= opt.angle_x
+                ),
+                t_drive,
+            )
+
+
+            # place holder for empty drive channels. this is necessary due to known pulse gate bug.
+            pulse.shift_frequency(-offset,t_drive)
+
+            pulse.delay(opt.duration, c_drive)
+            
+        return cross_resonance
+    
+    def _pulse_gate_circuits(self):
+        """Protocol to create circuits with pulse gate.
+
+        Pulse gate has backend timing constraints and duration should be in units of dt.
+        This method calls :meth:`_build_default_schedule` to generate actual schedule.
+        We assume backend has been set in this method call.
+        """
+        schedule = self._build_default_schedule()
+        schedule_ref = self._build_ref_schedule()
+        # Assume this parameter is in units of dt, because this controls pulse samples.
+        param_amp = next(iter(schedule.get_parameters("amp")))
+        param_amp_ref = next(iter(schedule_ref.get_parameters("amp_1")))
+        # Gate duration will be shown in sec, which is more intuitive.
+        cr_gate = self._gate_cls(amp=self._get_width(param_amp))
+        ref_gate = circuit.Gate('ref',2,[param_amp_ref])
+        # Create parameterized circuits with calibration.
+        tmp_circs = []
+        for control_state in (0, 1):
+            for meas_basis in ("x", "y", "z"):
+                tmp_qc = QuantumCircuit(2, 1)
+                if control_state:
+                    tmp_qc.x(0)
+                tmp_qc.compose(
+                    other=self._build_cr_circuit(cr_gate),
+                    qubits=[0, 1],
+                    inplace=True,
+                )
+                tmp_qc.x(0)
+                tmp_qc.rz(np.pi, 1)
+                tmp_qc.compose(
+                    other=self._build_cr_circuit(ref_gate),
+                    qubits=[0, 1],
+                    inplace=True,
+                )
+                tmp_qc.rz(-np.pi, 1)
+                if meas_basis == "x":
+                    tmp_qc.rz(np.pi / 2, 1)
+                if meas_basis in ("x", "y"):
+                    tmp_qc.sx(1)
+                tmp_qc.measure(1, 0)
+                tmp_qc.metadata = {
+                    "control_state": control_state,
+                    "meas_basis": meas_basis,
+                }
+                tmp_qc.add_calibration(cr_gate, self.physical_qubits, schedule)
+                tmp_qc.add_calibration(ref_gate, self.physical_qubits, schedule_ref)
+                tmp_circs.append(tmp_qc)
+
+        circs = []
+        for amp in self._get_amps():
+
+            for circ in tmp_circs:
+                # Assign duration in dt to create pulse schedule.
+                assigned_circ = circ.assign_parameters(
+                    {param_amp: amp,param_amp_ref : amp},
+                    
+                    inplace=False,
+                )
+                assigned_circ.metadata["xval"] = amp
+                circs.append(assigned_circ)
+
+        return circs
 
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
@@ -1616,10 +1851,24 @@ class ECR_calibration():
         amps = np.linspace(self.CR_amp-0.0125*2, self.CR_amp+0.0125*2, 50),
         amp = self.x_amp_3,
         angle_c = self.CR_angle,
-        x_angle = self.x_angle,
+        angle_x = self.x_angle,
         backend=self.backend,
         offset = self.offset
         )
+        data_cr = cr_ham_experiment.run().block_for_results()
+        data = data_analysis(data_cr)
+        data.plot_result()
+        return data_cr
+    def _experiment_ecr_second_x_sweep(self):
+        config = {'physical_qubits':self.physical_qubits,
+                'duration':self.CR_duration,
+                'amps':np.linspace(self.x_amp_3-0.001, self.x_amp_3+0.001, 30),
+                'amp':self.CR_amp,
+                'angle_c':self.CR_angle,
+                'angle_x':self.x_angle,
+                'offset':self.offset,
+                'backend':self.backend}
+        cr_ham_experiment =ECR_with_second_x(self.x_amp_3,config)
         data_cr = cr_ham_experiment.run().block_for_results()
         data = data_analysis(data_cr)
         data.plot_result()
@@ -1642,7 +1891,23 @@ class ECR_calibration():
                     break
         return min_index 
         
-        
+    
+    def _experiment_ecr_second_c_sweep(self):
+        config = {'physical_qubits':self.physical_qubits,
+                'duration':self.CR_duration,
+                'amps':np.linspace(self.CR_amp-0.0125*2, self.CR_amp+0.0125*2, 50),
+                'amp':self.x_amp_3,
+                'angle_c':self.CR_angle,
+                'angle_x':self.x_angle,
+                'offset':self.offset,
+                'backend':self.backend}
+        cr_ham_experiment =ECR_with_second_c(self.second_x,config)
+        data_cr = cr_ham_experiment.run().block_for_results()
+        data = data_analysis(data_cr)
+        data.plot_result()
+        return data_cr
+    
+    
     def find_x_amp_0(self):
         print('Finding amplitude of -W_zz + W_ix = 0....')
         data = np.array(list(np.linspace(-0.015, 0.000, 20)) + list(np.linspace(0.02, 0.06, 40)))
@@ -1675,66 +1940,105 @@ class ECR_calibration():
             return False
     
     
-    def find_offset(self):
+    def find_offset(self,config = None):
         #self._experiment_ecr_sweep(step=50)
-        self.find_x_amp_0()
-        print('Finding offset....')
-        data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 30e-7, 40),0)
-        data = data_analysis(data_cr)
-        res = data.get_result()
-        
-        pass_offset = False
-        index = 1
-        while abs(res['z0'][index])<0.2:
-            if (abs(abs(res['x0'][0]) - abs(res['x0'][index]))<0.2):
-                pass_offset = True
-                index+=1
-            else:
-                pass_offset = False
-                break
-                
-        
-        x_amp_1 = list(res['xval'])[np.argmax(np.array(res['x0']))]
-        params = fit_sin_fucntion(res['xval'],res['x0'])
-        data = data_analysis(data_cr)
-        data.plot_result()
-        if not(pass_offset):
-            is_up = self.__check_up(res['x0'])
-            
-            
-            
-            if is_up:
-                #offset = abs(params[1]/(2*np.pi))
-                offset = (1/(x_amp_1*4))*np.max(abs(np.array(res['x0'])))
-            else:
-                #offset = -abs(params[1]/(2*np.pi))
-                offset = -(1/(x_amp_1*4))*np.max(abs(np.array(res['x0'])))
-            
-            self.offset += offset
-            print(f'offset = {offset}')
-            self.re_optimize_ecr()
+        if config is None:
             self.find_x_amp_0()
-            print('Checking offset....')
-            data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 30e-7, 40),self.offset)
+            print('Finding offset....')
+            data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 30e-7, 40),0)
+            data = data_analysis(data_cr)
+            res = data.get_result()
+            
+            pass_offset = False
+            index = 1
+            while abs(res['z0'][index])<0.2:
+                if (abs(abs(res['x0'][0]) - abs(res['x0'][index]))<0.2):
+                    pass_offset = True
+                    index+=1
+                else:
+                    pass_offset = False
+                    break
+                    
+            
+            x_amp_1 = list(res['xval'])[np.argmax(np.array(res['x0']))]
+            params = fit_sin_fucntion(res['xval'],res['x0'])
             data = data_analysis(data_cr)
             data.plot_result()
+            if not(pass_offset):
+                is_up = self.__check_up(res['x0'])
+                
+                
+                
+                if is_up:
+                    #offset = abs(params[1]/(2*np.pi))
+                    offset = (1/(x_amp_1*4))*np.max(abs(np.array(res['x0'])))
+                else:
+                    #offset = -abs(params[1]/(2*np.pi))
+                    offset = -(1/(x_amp_1*4))*np.max(abs(np.array(res['x0'])))
+                
+                self.offset += offset
+                print(f'offset = {offset}')
+                self.re_optimize_ecr()
+                self.find_x_amp_0()
+                print('Checking offset....')
+                data_cr = self._experiment_duration_sweep(np.linspace(10e-8, 30e-7, 40),self.offset)
+                data = data_analysis(data_cr)
+                data.plot_result()
+                
+                
             
-            
+        
+        else:
+            for key in config.keys():
+                try:
+                    setattr(self,key,config[key])
+                except:
+                    pass
+
         print('Recalibration of ECR....')
-        data_cr = self._experiment_ecr_c_sweep()
+        
+        
+        
+        
+        data_cr = self._experiment_ecr_second_x_sweep()
         data = data_analysis(data_cr)
         res = data.get_result()
         x_value = np.array(res['xval'])
-        y_value = np.array(((res['z0']+res['z1'])/2))
-        
+        y_value = np.array(((res['z0']-res['z1'])))
         x_value = x_value.reshape(-1,1)
         reg = LinearRegression().fit(x_value, y_value)
         slope = reg.coef_[0]
         intercept = reg.intercept_
         
         x_zero = -intercept / slope
-        self.CR_amp = x_zero
         print(f'Z distance : {x_zero}')
+        print(f'Diffrence : {self.x_amp_3-x_zero}')
+        self.second_x = x_zero
+        
+        
+        
+        
+        data_cr = self._experiment_ecr_second_c_sweep()
+        data = data_analysis(data_cr)
+        res = data.get_result()
+        x_value = np.array(res['xval'])
+        y_value = np.array(((res['z0']+res['z1'])))
+        x_value = x_value.reshape(-1,1)
+        reg = LinearRegression().fit(x_value, y_value)
+        slope = reg.coef_[0]
+        intercept = reg.intercept_
+        
+        x_zero = -intercept / slope
+        print(f'Diffrence : {self.CR_amp-x_zero}')
+        print(f'Z distance : {x_zero}')
+        self.CR_amp = x_zero
+        
+        
+        
+        
+        
+        
+        
         self._experiment_ecr_sweep(step=50)
         print(f'offset : {self.offset}')
 
@@ -1774,7 +2078,7 @@ class ECR_calibration_minus(ECR_calibration):
         x_amp = list(res['xval'][:19])[self._find_first_pick(np.array(res['y0'][:19]))]
         x_amp_1 = list(res['xval'][21:])[np.argmax(np.array(res['z0'][21:]))]
         x_amp_3 = list(res['xval'][21:])[np.argmax(np.array(res['z1'][21:]))]
-        x_amp_2 = (x_amp_1+x_amp_3)
+        x_amp_2 = (x_amp_1+x_amp_3)/2
         self.x_amp_0  = x_amp
         self.x_amp_1 = x_amp_1
         self.x_amp_2 = x_amp_2
@@ -1782,5 +2086,4 @@ class ECR_calibration_minus(ECR_calibration):
         print(f'cancel point : {x_amp}')
         print(f'w_ZX + w_IX point : {x_amp_1}')
         print(f'w_ZX - w_IX point : {x_amp_3}')
-        
         
