@@ -15,7 +15,7 @@ import pandas as pd
 import uuid
 import json
 import copy
-
+from functions.custom_pulse import custom_GaussianSquare
 
 
 def remove_ecr_gates(circuit):
@@ -65,7 +65,6 @@ class update_pulse():
         for config in self.config_list:
             pulse_real = self.__ecr_to_schedule(config)
             backend_copy.target.update_instruction_properties(f'ecr',tuple(config["init"]),properties = InstructionProperties(calibration=(pulse_real)))
-            return backend_copy
     
 
         return backend_copy
@@ -84,7 +83,7 @@ class update_pulse():
         duration =  CR_plus.pulse.duration
         width = duration-duration_width_diff
         CR_plus.pulse.duration = duration
-        signal_params_c = {'amp':config['cr_amp'],'width':width,'angle': CR_plus.pulse._params['angle']}
+        signal_params_c = {'amp':config['cr_amp'],'width':width,'angle': config['cr_angle']}
         
 
         CR_plus.pulse._params.update(signal_params_c)
@@ -92,10 +91,12 @@ class update_pulse():
         my_schedule = ScheduleBlock()
         
         real_pulse = ScheduleBlock()
-        real_pulse += ShiftFrequency(config['offset'],x_target.channel)
-        real_pulse += CR_plus
-        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp1'],sigma = 32,beta = config['beta'],width = width, angle = config['x_angle']),x_target.channel)
-        real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
+        #real_pulse += ShiftFrequency(config['offset'],x_target.channel)
+        #real_pulse += ShiftFrequency(config['offset'],CR_plus.channel)
+        real_pulse += Play(custom_GaussianSquare(duration,amp = config['cr_amp'],sigma = 32,offset = config['offset']*backend.dt,width = width, angle = config['cr_angle']),CR_plus.channel)
+        real_pulse += Play(custom_GaussianSquare(duration,amp = config['amp1'],sigma = 32,offset = 0,width = width, angle = config['x_angle1']),x_target.channel)
+        #real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
+        #real_pulse += ShiftFrequency(-config['offset'],CR_plus.channel)
         real_pulse += Delay(x_control.pulse.duration,x_target.channel)
         real_pulse += Delay(x_control.pulse.duration,CR_plus.channel)
         
@@ -108,12 +109,13 @@ class update_pulse():
         CR_minus = copy.deepcopy(CR_plus)
         CR_minus.pulse._params.update(signal_params_c)
 
-        real_pulse += ShiftFrequency(config['offset'],x_target.channel)
-        real_pulse += ShiftFrequency(config['offset'],CR_plus.channel)
-        real_pulse += CR_minus
-        real_pulse += Play(GaussianSquareDrag(duration,amp = config['amp2'],sigma = 32,beta = config['beta'],width = width, angle = config['x_angle']+np.pi),x_target.channel)
-        real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
-        real_pulse += ShiftFrequency(-config['offset'],CR_plus.channel)
+        #real_pulse += ShiftFrequency(config['offset'],x_target.channel)
+        #real_pulse += ShiftFrequency(config['offset'],CR_plus.channel)
+        real_pulse += Play(custom_GaussianSquare(duration,amp = config['cr_amp'],sigma = 32,offset = config['offset']*backend.dt,width = width, angle = config['cr_angle']+np.pi),CR_plus.channel)
+        real_pulse += Play(custom_GaussianSquare(duration,amp = config['amp2'],sigma = 32,offset = 0,width = width, angle = config['x_angle2']+np.pi),x_target.channel)
+        #real_pulse += ShiftFrequency(-config['offset'],x_target.channel)
+        #real_pulse += ShiftFrequency(-config['offset'],CR_plus.channel)
+
 
         
         my_schedule += real_pulse
